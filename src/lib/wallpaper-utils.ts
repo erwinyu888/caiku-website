@@ -21,6 +21,7 @@ export function computeCostPerPiece(
   cost_m2: number | null,
   m2: number | null
 ): number | null {
+  // 4.47 = pieces per m² conversion factor used by the stone tile supplier catalog
   return cost_m2 && m2 ? Math.round(cost_m2 * m2 * 4.47 * 10) / 10 : null;
 }
 
