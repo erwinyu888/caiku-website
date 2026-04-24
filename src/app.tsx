@@ -36,7 +36,7 @@ function getUnit(title: string): string {
 }
 
 /** 每「組」包含的片數（普通石皮 5，其他 1） */
-function getUnitsPerSet(title: string): number {
+export function getUnitsPerSet(title: string): number {
   return isSetProduct(title) ? 5 : 1;
 }
 

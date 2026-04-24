@@ -100,11 +100,6 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
   const [bulkDone, setBulkDone] = useState<{ success: number; fail: number } | null>(null);
   const [bulkErrors, setBulkErrors] = useState<string[]>([]);
 
-  // ── 圖片旋轉狀態 ──
-  // 使用 URL hash 儲存旋轉角度，格式: url#r90, url#r180, url#r270
-  // 不需要 CORS，純 CSS 旋轉
-  const [rotatingIndex, setRotatingIndex] = useState<number | null>(null);
-
   const parseRotation = (url: string): { baseUrl: string; deg: number } => {
     const match = url.match(/#r(\d+)$/);
     return match ? { baseUrl: url.replace(/#r\d+$/, ''), deg: parseInt(match[1]) } : { baseUrl: url, deg: 0 };
@@ -514,6 +509,8 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
       image_url: coverUrl,
       image_urls: imageUrlsArray,
       stock: editingWallpaper.stock,
+      price_per_piece: editingWallpaper.price_per_piece ?? null,
+      cost_per_piece: editingWallpaper.cost_per_piece ?? null,
       updated_at: new Date().toISOString()
     }).eq('id', editingWallpaper.id);
     if (error) { alert('更新失敗：' + error.message); return; }
@@ -1492,6 +1489,39 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
                 <label className="block text-xs font-medium text-neutral-600 mb-2 uppercase tracking-wider">庫存</label>
                 <input type="number" required min="0" value={editingWallpaper.stock} onChange={e => setEditingWallpaper({...editingWallpaper, stock: parseInt(e.target.value)})} className="w-full px-4 py-3 border border-neutral-300 focus:outline-none focus:border-neutral-900 text-sm" />
               </div>
+
+              {/* 報價 / 成本 */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-neutral-600 mb-2 uppercase tracking-wider">報價／片 (NT$)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    placeholder="—"
+                    value={editingWallpaper.price_per_piece ?? ''}
+                    onChange={e => setEditingWallpaper({...editingWallpaper, price_per_piece: e.target.value === '' ? undefined : parseFloat(e.target.value)})}
+                    className="w-full px-4 py-3 border border-neutral-300 focus:outline-none focus:border-neutral-900 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-neutral-600 mb-2 uppercase tracking-wider">成本／片 (NT$)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    placeholder="—"
+                    value={editingWallpaper.cost_per_piece ?? ''}
+                    onChange={e => setEditingWallpaper({...editingWallpaper, cost_per_piece: e.target.value === '' ? undefined : parseFloat(e.target.value)})}
+                    className="w-full px-4 py-3 border border-neutral-300 focus:outline-none focus:border-neutral-900 text-sm"
+                  />
+                </div>
+              </div>
+              {editingWallpaper.price_per_piece && editingWallpaper.cost_per_piece && editingWallpaper.price_per_piece > 0 && (
+                <p className="text-xs text-green-700 -mt-2">
+                  毛利率：{(((editingWallpaper.price_per_piece - editingWallpaper.cost_per_piece) / editingWallpaper.price_per_piece) * 100).toFixed(1)}%
+                </p>
+              )}
 
               {/* 多圖網址編輯 */}
               <div>
