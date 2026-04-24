@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { computeMarginRatio, computeCostPerPiece, shouldShowMarginPreview, computeMarginPercent } from '../lib/wallpaper-utils';
 import { Plus, Power, PowerOff, Edit2, Trash2, ArrowLeft, LogOut, X, ArrowUp, ArrowDown, Package, ShoppingBag, Upload, AlertCircle, CheckCircle, FileSpreadsheet, LayoutDashboard, FileText, RotateCw } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
@@ -153,8 +154,8 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
       if (!sortKey) return 0;
       let va: any, vb: any;
       if (sortKey === 'margin') {
-        va = (a.price_per_piece && a.cost_per_piece) ? (a.price_per_piece - a.cost_per_piece) / a.price_per_piece : -1;
-        vb = (b.price_per_piece && b.cost_per_piece) ? (b.price_per_piece - b.cost_per_piece) / b.price_per_piece : -1;
+        va = computeMarginRatio(a.price_per_piece, a.cost_per_piece);
+        vb = computeMarginRatio(b.price_per_piece, b.cost_per_piece);
       } else if (sortKey === 'is_active') {
         va = a.is_active ? 1 : 0; vb = b.is_active ? 1 : 0;
       } else {
@@ -386,7 +387,7 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
           const m2        = idxM2     !== -1 ? parseFloat(String(row[idxM2]     ?? '')) || null : null;
           const cost_m2   = idxCostM2 !== -1 ? parseFloat(String(row[idxCostM2] ?? '')) || null : null;
           const price_per_piece = idxPrice !== -1 ? parseFloat(String(row[idxPrice] ?? '')) || null : null;
-          const cost_per_piece = (cost_m2 && m2) ? Math.round(cost_m2 * m2 * 4.47 * 10) / 10 : null;
+          const cost_per_piece = computeCostPerPiece(cost_m2, m2);
           const stock = idxStock !== -1 ? (parseInt(String(row[idxStock])) || 0) : 0;
           const imgUrls = imgIndices.map(i => String(row[i] ?? '').trim()).filter(Boolean);
           const image_url = imgUrls[0] || '';
@@ -1517,9 +1518,9 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
                   />
                 </div>
               </div>
-              {editingWallpaper.price_per_piece && editingWallpaper.cost_per_piece && editingWallpaper.price_per_piece > 0 && (
+              {shouldShowMarginPreview(editingWallpaper.price_per_piece, editingWallpaper.cost_per_piece) && (
                 <p className="text-xs text-green-700 -mt-2">
-                  毛利率：{(((editingWallpaper.price_per_piece - editingWallpaper.cost_per_piece) / editingWallpaper.price_per_piece) * 100).toFixed(1)}%
+                  毛利率：{computeMarginPercent(editingWallpaper.price_per_piece!, editingWallpaper.cost_per_piece!).toFixed(1)}%
                 </p>
               )}
 
