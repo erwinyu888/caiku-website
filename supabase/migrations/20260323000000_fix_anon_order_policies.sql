@@ -13,18 +13,6 @@
      - Uses SECURITY DEFINER so it runs with elevated privileges
 */
 
--- ─── Grant table-level permissions to anon role ───
--- (RLS policies alone are not enough; the anon role also needs GRANT permissions)
-GRANT USAGE ON SCHEMA public TO anon;
-GRANT SELECT, INSERT, UPDATE ON TABLE public.orders TO anon;
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.order_items TO anon;
-
--- ─── orders: allow anyone to INSERT (for customer checkout) ───
-DROP POLICY IF EXISTS "Anyone can insert orders" ON orders;
-CREATE POLICY "Anyone can insert orders"
-  ON orders FOR INSERT
-  WITH CHECK (true);
-
 -- ─── orders: allow anyone to SELECT (app filters by email/phone) ───
 DROP POLICY IF EXISTS "Anyone can view own orders" ON orders;
 CREATE POLICY "Anyone can view own orders"
