@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { computeMarginRatio, computeCostPerPiece, shouldShowMarginPreview, computeMarginPercent } from '../lib/wallpaper-utils';
 import { Plus, Power, PowerOff, Edit2, Trash2, ArrowLeft, LogOut, X, ArrowUp, ArrowDown, Package, ShoppingBag, Upload, AlertCircle, CheckCircle, LayoutDashboard, FileText, RotateCw } from 'lucide-react';
 import { supabase, uploadProductImage } from '../lib/supabase';
 import type { Wallpaper, Order } from '../lib/supabase';

@@ -122,7 +122,7 @@ export default function DashboardPage() {
             <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f5"/>
             <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#737373' }}/>
             <YAxis tick={{ fontSize: 11, fill: '#737373' }} tickFormatter={v => `NT$${(v/1000).toFixed(0)}k`}/>
-            <Tooltip formatter={(v: number) => [`NT$ ${v.toLocaleString()}`, '訂單金額']}/>
+            <Tooltip formatter={(v: number | string | undefined) => [`NT$ ${Number(v ?? 0).toLocaleString()}`, '訂單金額']}/>
             <Bar dataKey="amount" fill="#171717" radius={[2,2,0,0]}/>
           </BarChart>
         </ResponsiveContainer>
@@ -138,10 +138,10 @@ export default function DashboardPage() {
           ) : (
             <ResponsiveContainer width="100%" height={220}>
               <PieChart>
-                <Pie data={pieData} cx="50%" cy="50%" outerRadius={80} dataKey="value" label={({ name, percent }) => `${name} ${(percent*100).toFixed(0)}%`} labelLine={false}>
+                <Pie data={pieData} cx="50%" cy="50%" outerRadius={80} dataKey="value" label={({ name, percent }: { name?: string; percent?: number }) => `${name ?? ''} ${((percent ?? 0)*100).toFixed(0)}%`} labelLine={false}>
                   {pieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]}/>)}
                 </Pie>
-                <Tooltip formatter={(v: number) => `NT$ ${v.toLocaleString()}`}/>
+                <Tooltip formatter={(v: number | string | undefined) => `NT$ ${Number(v ?? 0).toLocaleString()}`}/>
                 <Legend/>
               </PieChart>
             </ResponsiveContainer>
@@ -159,7 +159,7 @@ export default function DashboardPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f5"/>
                 <XAxis type="number" tick={{ fontSize: 10, fill: '#737373' }} tickFormatter={v => `${v}%`} domain={[0, 100]}/>
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: '#737373' }} width={80}/>
-                <Tooltip formatter={(v: number) => [`${v}%`, '毛利率']} labelFormatter={(l) => profitData.find(d => d.name === l)?.fullName || l}/>
+                <Tooltip formatter={(v: number | string | undefined) => [`${v ?? 0}%`, '毛利率']} labelFormatter={(l) => profitData.find(d => d.name === l)?.fullName || l}/>
                 <Bar dataKey="margin" fill="#171717" radius={[0,2,2,0]}/>
               </BarChart>
             </ResponsiveContainer>

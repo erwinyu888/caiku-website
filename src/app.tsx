@@ -35,7 +35,7 @@ function getUnit(title: string): string {
 }
 
 /** 每「組」包含的片數（普通石皮 5，其他 1） */
-function getUnitsPerSet(title: string): number {
+export function getUnitsPerSet(title: string): number {
   return isSetProduct(title) ? 5 : 1;
 }
 
@@ -373,12 +373,6 @@ function App() {
                 <a href="https://www.facebook.com/share/1HLkSESqxm/" target="_blank" rel="noopener noreferrer" className="text-neutral-500 hover:text-[#1877F2] transition-colors" title="Facebook">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
                 </a>
-                <div className="w-px h-5 bg-neutral-200 mx-1"/>
-                {isAuthenticated
-                  ? <><button onClick={() => setShowAdmin(true)} className="text-neutral-600 hover:text-neutral-800"><Shield size={20}/></button>
-                       <button onClick={handleLogout} className="text-neutral-600 hover:text-neutral-800"><LogOut size={20}/></button></>
-                  : <button onClick={() => setShowLogin(true)} className="text-neutral-600 hover:text-neutral-800"><Shield size={20}/></button>
-                }
                 <button onClick={() => setShowSearch(!showSearch)} className="text-neutral-600 hover:text-neutral-800"><Search size={20}/></button>
                 <button onClick={() => setShowCart(true)} className="relative text-neutral-600 hover:text-neutral-800">
                   <ShoppingCart size={20}/>
@@ -1044,8 +1038,13 @@ function App() {
               </ul>
             </div>
           </div>
-          <div className="border-t border-neutral-800 mt-8 pt-8 text-center text-sm">
+          <div className="border-t border-neutral-800 mt-8 pt-8 text-center text-sm flex items-center justify-center gap-4">
             <p>&copy; 2025 材酷建材 CAIKU. 版權所有。</p>
+            {isAuthenticated
+              ? <><button onClick={() => setShowAdmin(true)} className="text-neutral-600 hover:text-white transition-colors flex items-center gap-1"><Shield size={14}/>管理後台</button>
+                   <button onClick={handleLogout} className="text-neutral-600 hover:text-white transition-colors flex items-center gap-1"><LogOut size={14}/>登出</button></>
+              : <button onClick={() => setShowLogin(true)} className="text-neutral-600 hover:text-white transition-colors flex items-center gap-1"><Shield size={14}/>管理員登入</button>
+            }
           </div>
         </div>
       </footer>
