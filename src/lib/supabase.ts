@@ -44,6 +44,39 @@ export interface CartItem {
   quantity: number;
 }
 
+export async function uploadProductImage(file: File): Promise<string> {
+  const timestamp = Date.now();
+
+  // 從檔案名稱提取副檔名
+  const ext = file.name.split('.').pop() || 'jpg';
+
+  // 生成安全的檔案名稱（只用時間戳 + 隨機數）
+  const randomId = Math.random().toString(36).substring(2, 8);
+  const fileName = `${timestamp}-${randomId}.${ext}`;
+
+  const { data, error } = await supabase.storage
+    .from('product_image')
+    .upload(fileName, file);
+
+  if (error) {
+    throw new Error(`Supabase 上傳失敗: ${error.message}`);
+  }
+
+  if (!data) {
+    throw new Error('上傳成功但未取得檔案資訊');
+  }
+
+  const { data: urlData } = supabase.storage
+    .from('product_image')
+    .getPublicUrl(fileName);
+
+  if (!urlData?.publicUrl) {
+    throw new Error('無法取得公開網址');
+  }
+
+  return urlData.publicUrl;
+}
+
 export interface OrderItem {
   id: string;
   order_id: string;

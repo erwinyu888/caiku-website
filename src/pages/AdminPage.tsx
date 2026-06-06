@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Power, PowerOff, Edit2, Trash2, ArrowLeft, LogOut, X, ArrowUp, ArrowDown, Package, ShoppingBag, Upload, AlertCircle, CheckCircle, FileSpreadsheet, LayoutDashboard, FileText, RotateCw } from 'lucide-react';
-import * as XLSX from 'xlsx';
-import { supabase } from '../lib/supabase';
+import { Plus, Power, PowerOff, Edit2, Trash2, ArrowLeft, LogOut, X, ArrowUp, ArrowDown, Package, ShoppingBag, Upload, AlertCircle, CheckCircle, LayoutDashboard, FileText, RotateCw } from 'lucide-react';
+import { supabase, uploadProductImage } from '../lib/supabase';
 import type { Wallpaper, Order } from '../lib/supabase';
 import DashboardPage from './DashboardPage';
 
@@ -45,33 +44,12 @@ interface AdminPageProps {
   onLogout: () => void;
 }
 
-// 批次上傳預覽用的列型別
-interface BulkRow {
-  product_code: string;
-  title: string;
-  category: string;
-  spec: string;
-  thickness: string;
-  cost_per_m2?: number;
-  cost_per_piece?: number;
-  price_per_piece?: number;
-  stock: number;
-  image_url: string;
-  image_urls: string[];
-  error?: string;
-}
 
-// 編號前綴 → 分類名稱對應表
-const PREFIX_CATEGORY: Record<string, string> = {
-  R: '洞石系列',
-  M: '大理石系列',
-  P: '普通石皮',
-};
 
 // ===================== 主元件 =====================
 
 export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'wallpapers' | 'categories' | 'messages' | 'orders' | 'bulk' | 'customers'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'wallpapers' | 'categories' | 'messages' | 'orders' | 'customers'>('dashboard');
   const [wallpapers, setWallpapers] = useState<Wallpaper[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [messages, setMessages] = useState<ContactMessage[]>([]);
@@ -91,19 +69,17 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
   const [newCategory, setNewCategory] = useState({ name: '', display_order: 0 });
   const [viewingMessage, setViewingMessage] = useState<ContactMessage | null>(null);
 
-  // ── 批次上傳狀態 ──
+  // ── 檔案上傳 ──
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
-  const [bulkFileName, setBulkFileName] = useState('');
-  const [bulkUploading, setbulkUploading] = useState(false);
-  const [bulkProgress, setBulkProgress] = useState(0);
-  const [bulkDone, setBulkDone] = useState<{ success: number; fail: number } | null>(null);
-  const [bulkErrors, setBulkErrors] = useState<string[]>([]);
 
   // ── 圖片旋轉狀態 ──
   // 使用 URL hash 儲存旋轉角度，格式: url#r90, url#r180, url#r270
   // 不需要 CORS，純 CSS 旋轉
   const [rotatingIndex, setRotatingIndex] = useState<number | null>(null);
+
+  // ── 圖片上傳狀態 ──
+  const [uploading, setUploading] = useState(false);
+  const imageUploadInputRef = useRef<HTMLInputElement>(null);
 
   const parseRotation = (url: string): { baseUrl: string; deg: number } => {
     const match = url.match(/#r(\d+)$/);
@@ -119,6 +95,30 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
     const newUrls = [...urls];
     newUrls[index] = newDeg === 0 ? baseUrl : `${baseUrl}#r${newDeg}`;
     setEditingImageUrls(newUrls.join('\n'));
+  };
+
+  const deleteImage = (index: number) => {
+    const urls = editingImageUrls.split('\n').map(u => u.trim()).filter(Boolean);
+    const newUrls = urls.filter((_, i) => i !== index);
+    setEditingImageUrls(newUrls.join('\n'));
+  };
+
+  const handleImageUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    try {
+      const urls = editingImageUrls.trim() ? editingImageUrls.split('\n').map(u => u.trim()).filter(Boolean) : [];
+      for (let i = 0; i < files.length; i++) {
+        const url = await uploadProductImage(files[i]);
+        urls.push(url);
+      }
+      setEditingImageUrls(urls.join('\n'));
+    } catch (err) {
+      alert('上傳失敗：' + (err instanceof Error ? err.message : '未知錯誤'));
+    } finally {
+      setUploading(false);
+      if (imageUploadInputRef.current) imageUploadInputRef.current.value = '';
+    }
   };
 
   // ── 客戶管理狀態 ──
@@ -333,164 +333,6 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
 
   // ===================== 批次上傳：解析 Excel =====================
 
-  const handleBulkFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setBulkFileName(file.name);
-    setBulkDone(null);
-    setBulkErrors([]);
-
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const wb = XLSX.read(ev.target?.result, { type: 'array' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const raw: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-
-        let headerIdx = -1;
-        for (let i = 0; i < Math.min(raw.length, 10); i++) {
-          if (raw[i].some((cell: any) => String(cell).includes('產品名稱'))) {
-            headerIdx = i;
-            break;
-          }
-        }
-        if (headerIdx === -1) {
-          setBulkErrors(['找不到標題列，請確認 Excel 內含「產品名稱」欄位']);
-          setBulkRows([]);
-          return;
-        }
-
-        const headers: string[] = raw[headerIdx].map((h: any) => String(h).trim());
-        const colIdx = (name: string) => headers.findIndex(h => h.includes(name));
-
-        const idxNo     = colIdx('編號');
-        const idxName   = colIdx('產品名稱');
-        const idxSpec   = colIdx('規格');
-        const idxThick  = colIdx('厚度');
-        const idxM2     = colIdx('米平方');
-        const idxCostM2 = colIdx('成本/m2');
-        const idxPrice  = colIdx('報價');
-        const idxStock  = colIdx('庫存');
-        const imgIndices: number[] = [];
-        for (let i = 1; i <= 18; i++) {
-          const idx = headers.findIndex(h => h.includes(`圖片${i}網址`) || h === `圖片${i}網址`);
-          if (idx !== -1) imgIndices.push(idx);
-        }
-
-        const rows: BulkRow[] = [];
-        for (let r = headerIdx + 1; r < raw.length; r++) {
-          const row = raw[r];
-          const no   = String(row[idxNo] ?? '').trim();
-          const name = String(row[idxName] ?? '').trim();
-          if (!no && !name) continue;
-
-          const prefix = no.charAt(0).toUpperCase();
-          const category  = PREFIX_CATEGORY[prefix] || '';
-          const spec      = idxSpec  !== -1 ? String(row[idxSpec]  ?? '').trim() : '';
-          const thickness = idxThick !== -1 ? String(row[idxThick] ?? '').trim() : '';
-          const m2        = idxM2     !== -1 ? parseFloat(String(row[idxM2]     ?? '')) || null : null;
-          const cost_m2   = idxCostM2 !== -1 ? parseFloat(String(row[idxCostM2] ?? '')) || null : null;
-          const price_per_piece = idxPrice !== -1 ? parseFloat(String(row[idxPrice] ?? '')) || null : null;
-          const cost_per_piece = (cost_m2 && m2) ? Math.round(cost_m2 * m2 * 4.47 * 10) / 10 : null;
-          const stock = idxStock !== -1 ? (parseInt(String(row[idxStock])) || 0) : 0;
-          const imgUrls = imgIndices.map(i => String(row[i] ?? '').trim()).filter(Boolean);
-          const image_url = imgUrls[0] || '';
-
-          const errors: string[] = [];
-          if (!name) errors.push('缺少產品名稱');
-          if (!category) errors.push(`未知編號前綴「${prefix}」`);
-
-          rows.push({
-            product_code: no,
-            title: name,
-            category,
-            spec,
-            thickness,
-            cost_per_m2:    cost_m2    ?? undefined,
-            cost_per_piece: cost_per_piece ?? undefined,
-            price_per_piece: price_per_piece ?? undefined,
-            stock,
-            image_url,
-            image_urls: imgUrls,
-            error: errors.length ? errors.join('；') : undefined,
-          });
-        }
-
-        setBulkRows(rows);
-      } catch (err) {
-        setBulkErrors(['解析失敗，請確認檔案格式為 .xlsx 或 .csv']);
-        setBulkRows([]);
-      }
-    };
-    reader.readAsArrayBuffer(file);
-  };
-
-  // ===================== 批次上傳：執行匯入 =====================
-
-  const handleBulkUpload = async () => {
-    const validRows = bulkRows.filter(r => !r.error);
-    if (validRows.length === 0) return;
-
-    setbulkUploading(true);
-    setBulkProgress(0);
-    setBulkDone(null);
-    setBulkErrors([]);
-
-    let success = 0;
-    let fail = 0;
-    const failMsgs: string[] = [];
-
-    const neededCategories = [...new Set(validRows.map(r => r.category))];
-    for (const catName of neededCategories) {
-      const exists = categories.some(c => c.name === catName);
-      if (!exists) {
-        const maxOrder = categories.length ? Math.max(...categories.map(c => c.display_order)) : -1;
-        await supabase.from('categories').insert([{ name: catName, display_order: maxOrder + 1, is_active: true }]);
-      }
-    }
-    await fetchCategories();
-
-    const BATCH = 25;
-    for (let i = 0; i < validRows.length; i += BATCH) {
-      const chunk = validRows.slice(i, i + BATCH).map(r => ({
-        product_code:    r.product_code,
-        title:           r.title,
-        category:        r.category,
-        spec:            r.spec,
-        thickness:       r.thickness,
-        cost_per_m2:     r.cost_per_m2    ?? null,
-        cost_per_piece:  r.cost_per_piece  ?? null,
-        price_per_piece: r.price_per_piece ?? null,
-        image_url:       r.image_url,
-        image_urls:      r.image_urls,
-        stock:           r.stock,
-        is_active:       true,
-      }));
-
-      const { error } = await supabase.from('wallpapers').insert(chunk);
-      if (error) {
-        fail += chunk.length;
-        failMsgs.push(`第 ${i + 1}–${i + chunk.length} 筆：${error.message}`);
-      } else {
-        success += chunk.length;
-      }
-      setBulkProgress(Math.round(((i + BATCH) / validRows.length) * 100));
-    }
-
-    setbulkUploading(false);
-    setBulkDone({ success, fail });
-    setBulkErrors(failMsgs);
-    if (success > 0) fetchWallpapers();
-  };
-
-  const resetBulk = () => {
-    setBulkRows([]);
-    setBulkFileName('');
-    setBulkDone(null);
-    setBulkErrors([]);
-    setBulkProgress(0);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
 
   // ===================== 產品 CRUD =====================
 
@@ -507,7 +349,7 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
     e.preventDefault();
     if (!editingWallpaper) return;
     const imageUrlsArray = editingImageUrls.split('\n').map(u => u.trim()).filter(Boolean);
-    const coverUrl = imageUrlsArray[0] || editingWallpaper.image_url;
+    const coverUrl = imageUrlsArray[0] || '';
     const { error } = await supabase.from('wallpapers').update({
       title: editingWallpaper.title,
       category: editingWallpaper.category,
@@ -813,7 +655,6 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
             { key: 'dashboard', icon: <LayoutDashboard size={18} />, label: '總覽' },
             { key: 'wallpapers', icon: <Package size={18} />, label: '產品管理' },
             { key: 'categories', icon: null, label: '分類管理' },
-            { key: 'bulk', icon: <Upload size={18} />, label: '批次上傳' },
             { key: 'orders', icon: <ShoppingBag size={18} />, label: '訂單', badge: orders.filter(o => o.status === 'pending').length },
             { key: 'customers', icon: null, label: '客戶管理', badge: 0 },
             { key: 'messages', icon: null, label: '訊息', badge: messages.filter(m => !m.is_read).length },
@@ -835,139 +676,6 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
         ══════════════════════════════════════════ */}
         {activeTab === 'dashboard' && <DashboardPage />}
 
-        {/* ══════════════════════════════════════════
-            批次上傳頁面
-        ══════════════════════════════════════════ */}
-        {activeTab === 'bulk' && (
-          <div className="space-y-8">
-            <div className="bg-neutral-50 border border-neutral-200 p-6">
-              <h2 className="text-lg font-bold text-neutral-900 mb-3 uppercase tracking-wider flex items-center space-x-2">
-                <FileSpreadsheet size={20} /><span>批次上傳產品</span>
-              </h2>
-              <div className="text-sm text-neutral-600 space-y-1">
-                <p>支援 <strong>.xlsx / .csv</strong>，請確認 Excel 包含以下欄位：</p>
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {['編號', '產品名稱', '圖片1網址 … 圖片18網址'].map(col => (
-                    <span key={col} className="bg-white border border-neutral-300 text-xs px-2 py-1 font-mono">{col}</span>
-                  ))}
-                </div>
-                <p className="mt-2">分類根據編號自動判斷：<strong>R</strong> → 洞石系列　<strong>M</strong> → 大理石系列　<strong>P</strong> → 普通石皮</p>
-                <p>第一張圖片作為封面，全部圖片網址會儲存於 <code>image_urls</code> 欄位。</p>
-              </div>
-            </div>
-
-            {!bulkRows.length && !bulkDone && (
-              <div
-                className="border-2 border-dashed border-neutral-300 rounded p-12 text-center cursor-pointer hover:border-neutral-500 transition-colors"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <Upload size={40} className="mx-auto text-neutral-400 mb-4" />
-                <p className="text-neutral-600 font-medium mb-1">點擊選擇 Excel / CSV 檔案</p>
-                <p className="text-neutral-400 text-sm">或拖曳檔案到此區域</p>
-                <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleBulkFileChange} />
-              </div>
-            )}
-
-            {bulkRows.length > 0 && !bulkDone && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4 text-sm">
-                    <span className="font-medium text-neutral-900">{bulkFileName}</span>
-                    <span className="text-green-600 flex items-center space-x-1"><CheckCircle size={14} /><span>有效 {validCount} 筆</span></span>
-                    {errorCount > 0 && <span className="text-red-500 flex items-center space-x-1"><AlertCircle size={14} /><span>錯誤 {errorCount} 筆（將跳過）</span></span>}
-                  </div>
-                  <div className="flex space-x-3">
-                    <button onClick={resetBulk} className="px-4 py-2 border border-neutral-300 text-neutral-700 text-sm hover:bg-neutral-50 transition-colors">重新選擇</button>
-                    <button
-                      onClick={handleBulkUpload}
-                      disabled={bulkUploading || validCount === 0}
-                      className="flex items-center space-x-2 bg-neutral-900 text-white px-6 py-2 text-sm hover:bg-neutral-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Upload size={16} />
-                      <span>{bulkUploading ? `上傳中 ${bulkProgress}%…` : `匯入 ${validCount} 筆產品`}</span>
-                    </button>
-                  </div>
-                </div>
-
-                {bulkUploading && (
-                  <div className="w-full bg-neutral-200 h-2">
-                    <div className="bg-neutral-900 h-2 transition-all duration-300" style={{ width: `${bulkProgress}%` }} />
-                  </div>
-                )}
-
-                <div className="border border-neutral-200 overflow-x-auto max-h-[500px] overflow-y-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-neutral-50 border-b border-neutral-200 sticky top-0">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-neutral-600 uppercase tracking-wider w-8">#</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-neutral-600 uppercase tracking-wider">產品編號</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-neutral-600 uppercase tracking-wider">產品名稱</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-neutral-600 uppercase tracking-wider">規格</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-neutral-600 uppercase tracking-wider">厚度</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-neutral-600 uppercase tracking-wider">成本/片</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-neutral-600 uppercase tracking-wider">報價/片</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-neutral-600 uppercase tracking-wider">分類</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-neutral-600 uppercase tracking-wider">庫存</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-neutral-600 uppercase tracking-wider">圖片數</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-neutral-600 uppercase tracking-wider">封面縮圖</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-neutral-600 uppercase tracking-wider">狀態</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-neutral-100">
-                      {bulkRows.map((row, i) => (
-                        <tr key={i} className={row.error ? 'bg-red-50' : 'hover:bg-neutral-50'}>
-                          <td className="px-4 py-2 text-neutral-400 text-xs">{i + 1}</td>
-                          <td className="px-4 py-2 font-mono font-bold text-neutral-700">{row.product_code || '—'}</td>
-                          <td className="px-4 py-2 text-neutral-900 font-medium max-w-xs truncate">{row.title || <span className="text-red-400 italic">（空）</span>}</td>
-                          <td className="px-4 py-2 text-neutral-600">{row.spec || '—'}</td>
-                          <td className="px-4 py-2 text-neutral-600">{row.thickness || '—'}</td>
-                          <td className="px-4 py-2 text-neutral-600">{row.cost_per_piece ? `NT$${row.cost_per_piece.toLocaleString()}` : '—'}</td>
-                          <td className="px-4 py-2 text-neutral-600">{row.price_per_piece ? `NT$${row.price_per_piece.toLocaleString()}` : '—'}</td>
-                          <td className="px-4 py-2 text-neutral-600">{row.category || '—'}</td>
-                          <td className="px-4 py-2 text-neutral-600">{row.stock}</td>
-                          <td className="px-4 py-2 text-neutral-600">{row.image_urls.length}</td>
-                          <td className="px-4 py-2">
-                            {row.image_url ? (
-                              <img src={row.image_url} alt="" className="w-16 h-12 object-contain bg-neutral-100" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                            ) : <span className="text-neutral-400 text-xs">無圖</span>}
-                          </td>
-                          <td className="px-4 py-2">
-                            {row.error
-                              ? <span className="text-red-500 text-xs flex items-center space-x-1"><AlertCircle size={12} /><span>{row.error}</span></span>
-                              : <span className="text-green-600 text-xs flex items-center space-x-1"><CheckCircle size={12} /><span>正常</span></span>
-                            }
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {bulkDone && (
-              <div className="space-y-4">
-                <div className={`p-6 border ${bulkDone.fail === 0 ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
-                  <div className="flex items-center space-x-3 mb-3">
-                    <CheckCircle size={24} className="text-green-600" />
-                    <h3 className="font-bold text-neutral-900 text-lg">上傳完成</h3>
-                  </div>
-                  <p className="text-neutral-700">成功匯入 <strong className="text-green-700">{bulkDone.success}</strong> 筆{bulkDone.fail > 0 && <>，失敗 <strong className="text-red-600">{bulkDone.fail}</strong> 筆</>}</p>
-                </div>
-                {bulkErrors.length > 0 && (
-                  <div className="bg-red-50 border border-red-200 p-4">
-                    <p className="text-sm font-medium text-red-700 mb-2">錯誤詳情：</p>
-                    {bulkErrors.map((e, i) => <p key={i} className="text-xs text-red-600">{e}</p>)}
-                  </div>
-                )}
-                <div className="flex space-x-3">
-                  <button onClick={resetBulk} className="px-6 py-2 border border-neutral-300 text-neutral-700 text-sm hover:bg-neutral-50 transition-colors">再次上傳</button>
-                  <button onClick={() => setActiveTab('wallpapers')} className="px-6 py-2 bg-neutral-900 text-white text-sm hover:bg-neutral-800 transition-colors">查看產品列表</button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
 
         {/* ══════════════════════════════════════════
             Add Product 表單（inline，頁面頂部）
@@ -1510,6 +1218,30 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
                   placeholder={"https://example.com/image1.jpg\nhttps://example.com/image2.jpg\n…"}
                   className="w-full px-4 py-3 border border-neutral-300 focus:outline-none focus:border-neutral-900 text-sm font-mono resize-y"
                 />
+                <div className="flex items-center gap-2 mt-2">
+                  <input
+                    ref={imageUploadInputRef}
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    onChange={(e) => handleImageUpload(e.currentTarget.files)}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => imageUploadInputRef.current?.click()}
+                    disabled={uploading}
+                    className={`flex items-center gap-2 px-4 py-2 rounded text-sm font-medium transition-colors ${
+                      uploading
+                        ? 'bg-neutral-300 text-neutral-600 cursor-not-allowed'
+                        : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300'
+                    }`}
+                  >
+                    <Upload size={14} />
+                    {uploading ? '上傳中...' : '上傳圖片'}
+                  </button>
+                  <span className="text-xs text-neutral-500">選擇 JPG、PNG 等圖片檔</span>
+                </div>
               </div>
 
               {/* 圖片預覽（可拖曳排序，全部顯示）*/}
@@ -1567,14 +1299,24 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
                           ) : (
                             <span className="absolute top-1 left-1 bg-black bg-opacity-50 text-white text-xs px-1 rounded">{i + 1}</span>
                           )}
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); rotateImage(i); }}
-                            className="absolute bottom-1 right-1 bg-black bg-opacity-60 text-white p-1 rounded hover:bg-opacity-80 transition-all"
-                            title={`旋轉 90°${deg ? ` (目前 ${deg}°)` : ''}`}
-                          >
-                            <RotateCw size={14} />
-                          </button>
+                          <div className="absolute top-1 right-1 flex flex-col gap-1">
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); deleteImage(i); }}
+                              className="bg-red-600 bg-opacity-80 text-white p-1 rounded hover:bg-opacity-100 transition-all"
+                              title="刪除此圖片"
+                            >
+                              <X size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); rotateImage(i); }}
+                              className="bg-black bg-opacity-60 text-white p-1 rounded hover:bg-opacity-80 transition-all"
+                              title={`旋轉 90°${deg ? ` (目前 ${deg}°)` : ''}`}
+                            >
+                              <RotateCw size={14} />
+                            </button>
+                          </div>
                         </div>
                         );
                       })}
