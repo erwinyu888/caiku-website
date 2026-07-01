@@ -619,10 +619,6 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
     }
   };
 
-  // ===================== 統計 =====================
-  const errorCount  = bulkRows.filter(r => r.error).length;
-  const validCount  = bulkRows.filter(r => !r.error).length;
-
   // ===================== JSX =====================
 
   return (
