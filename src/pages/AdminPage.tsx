@@ -362,13 +362,14 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
     if (error) { alert('更新失敗：' + error.message); return; }
     setEditingWallpaper(null);
     setEditingImageUrls('');
+    setWallpaperPage(1);
     fetchWallpapers();
   };
 
   const toggleWallpaperStatus = async (id: string, cur: boolean) => {
     const { error } = await supabase.from('wallpapers').update({ is_active: !cur, updated_at: new Date().toISOString() }).eq('id', id);
     if (error) alert('更新失敗：' + error.message);
-    else fetchWallpapers();
+    else { setWallpaperPage(1); fetchWallpapers(); }
   };
 
   const deleteWallpaper = async (id: string) => {
