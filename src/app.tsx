@@ -84,10 +84,11 @@ function groupProducts(products: Wallpaper[]): ProductGroup[] {
 type PageKey = 'home' | 'products' | 'service' | 'about' | 'contact' | 'order-lookup';
 const PAGE_KEYS: PageKey[] = ['home', 'products', 'service', 'about', 'contact', 'order-lookup'];
 
-/** 從網址 hash 解析目前頁面（#/products → products），無效值回 home */
+/** 從網址 hash 解析目前頁面（#/products → products），無效值回 home。
+    #/admin 與 #/admin/<tab>（後台頁籤）都視為 admin */
 function pageFromHash(): PageKey | 'admin' {
   const h = window.location.hash.replace(/^#\/?/, '');
-  if (h === 'admin') return 'admin';
+  if (h === 'admin' || h.startsWith('admin/')) return 'admin';
   return (PAGE_KEYS as string[]).includes(h) ? (h as PageKey) : 'home';
 }
 
@@ -180,7 +181,10 @@ function App() {
   useEffect(() => {
     const target = showAdmin || showLogin ? 'admin' : currentPage;
     const newHash = '#/' + target;
-    if (window.location.hash !== newHash) window.location.hash = newHash;
+    const cur = window.location.hash;
+    // 後台頁籤（#/admin/orders 等）由 AdminPage 自己管理，這裡不要蓋掉
+    if (target === 'admin' && (cur === '#/admin' || cur.startsWith('#/admin/'))) return;
+    if (cur !== newHash) window.location.hash = newHash;
   }, [currentPage, showAdmin, showLogin]);
 
   // 網址 hash → 頁面狀態（上一頁/下一頁、手動改網址時同步回來）

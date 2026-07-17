@@ -49,8 +49,34 @@ interface AdminPageProps {
 
 // ===================== 主元件 =====================
 
+type AdminTab = 'dashboard' | 'wallpapers' | 'categories' | 'messages' | 'orders' | 'customers';
+const ADMIN_TABS: AdminTab[] = ['dashboard', 'wallpapers', 'categories', 'messages', 'orders', 'customers'];
+
+/** 從網址 hash 解析後台頁籤（#/admin/orders → orders），無效值回 dashboard */
+function tabFromHash(): AdminTab {
+  const parts = window.location.hash.replace(/^#\/?/, '').split('/');
+  return parts[0] === 'admin' && (ADMIN_TABS as string[]).includes(parts[1])
+    ? (parts[1] as AdminTab)
+    : 'dashboard';
+}
+
 export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'wallpapers' | 'categories' | 'messages' | 'orders' | 'customers'>('dashboard');
+  // 頁籤與網址 hash 同步（#/admin/<tab>），重新整理停留在原頁籤
+  const [activeTab, setActiveTab] = useState<AdminTab>(tabFromHash);
+
+  useEffect(() => {
+    const newHash = activeTab === 'dashboard' ? '#/admin' : `#/admin/${activeTab}`;
+    if (window.location.hash !== newHash) window.location.hash = newHash;
+  }, [activeTab]);
+
+  useEffect(() => {
+    const onHashChange = () => {
+      const h = window.location.hash.replace(/^#\/?/, '');
+      if (h === 'admin' || h.startsWith('admin/')) setActiveTab(tabFromHash());
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
   const [wallpapers, setWallpapers] = useState<Wallpaper[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [messages, setMessages] = useState<ContactMessage[]>([]);
