@@ -84,26 +84,30 @@ function groupProducts(products: Wallpaper[]): ProductGroup[] {
 type PageKey = 'home' | 'products' | 'service' | 'about' | 'contact' | 'order-lookup';
 const PAGE_KEYS: PageKey[] = ['home', 'products', 'service', 'about', 'contact', 'order-lookup'];
 
-/** 從網址 hash 解析目前頁面（#/products → products），無效值回 home。
-    #/admin 與 #/admin/<tab>（後台頁籤）都視為 admin */
-function pageFromHash(): PageKey | 'admin' {
-  const h = window.location.hash.replace(/^#\/?/, '');
-  if (h === 'admin' || h.startsWith('admin/')) return 'admin';
-  return (PAGE_KEYS as string[]).includes(h) ? (h as PageKey) : 'home';
+// 舊版 #/xxx 網址自動轉成乾淨路徑（相容已分享的連結與瀏覽器記住的舊網址）
+const legacyHash = window.location.hash.match(/^#\/(.+)$/);
+if (legacyHash) window.history.replaceState(null, '', '/' + legacyHash[1]);
+
+/** 從網址路徑解析目前頁面（/products → products），無效值回 home。
+    /admin 與 /admin/<tab>（後台頁籤）都視為 admin */
+function pageFromPath(): PageKey | 'admin' {
+  const p = window.location.pathname.replace(/^\/+/, '').replace(/\/+$/, '');
+  if (p === 'admin' || p.startsWith('admin/')) return 'admin';
+  return (PAGE_KEYS as string[]).includes(p) ? (p as PageKey) : 'home';
 }
 
 function App() {
   const [showAdmin, setShowAdmin]             = useState(false);
-  // 重新整理時停在 #/admin：先同步顯示登入頁佔住 hash（避免被改寫回 #/home），
+  // 重新整理時停在 /admin：先同步顯示登入頁佔住網址（避免被改寫回首頁），
   // checkAuthStatus 確認已登入後會自動切到後台
-  const [showLogin, setShowLogin]             = useState(() => pageFromHash() === 'admin');
+  const [showLogin, setShowLogin]             = useState(() => pageFromPath() === 'admin');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [searchQuery, setSearchQuery]         = useState('');
   const [showSearch, setShowSearch]           = useState(false);
-  // 頁面狀態與網址 hash 同步：重新整理後停留在原頁面
+  // 頁面狀態與網址路徑同步：重新整理後停留在原頁面
   const [currentPage, setCurrentPage]         = useState<PageKey>(() => {
-    const p = pageFromHash();
+    const p = pageFromPath();
     return p === 'admin' ? 'home' : p;
   });
   const [showDrawer, setShowDrawer]           = useState(false);
@@ -177,20 +181,20 @@ function App() {
     checkAuthStatus();
   }, []);
 
-  // 頁面狀態 → 網址 hash（切頁時寫入，產生瀏覽紀錄，上一頁/下一頁可用）
+  // 頁面狀態 → 網址路徑（切頁時 pushState，產生瀏覽紀錄，上一頁/下一頁可用）
   useEffect(() => {
     const target = showAdmin || showLogin ? 'admin' : currentPage;
-    const newHash = '#/' + target;
-    const cur = window.location.hash;
-    // 後台頁籤（#/admin/orders 等）由 AdminPage 自己管理，這裡不要蓋掉
-    if (target === 'admin' && (cur === '#/admin' || cur.startsWith('#/admin/'))) return;
-    if (cur !== newHash) window.location.hash = newHash;
+    const newPath = target === 'home' ? '/' : '/' + target;
+    const cur = window.location.pathname;
+    // 後台頁籤（/admin/orders 等）由 AdminPage 自己管理，這裡不要蓋掉
+    if (target === 'admin' && (cur === '/admin' || cur.startsWith('/admin/'))) return;
+    if (cur !== newPath) window.history.pushState(null, '', newPath);
   }, [currentPage, showAdmin, showLogin]);
 
-  // 網址 hash → 頁面狀態（上一頁/下一頁、手動改網址時同步回來）
+  // 網址路徑 → 頁面狀態（上一頁/下一頁時同步回來）
   useEffect(() => {
-    const onHashChange = () => {
-      const p = pageFromHash();
+    const onPopState = () => {
+      const p = pageFromPath();
       if (p === 'admin') {
         if (isAuthenticated) setShowAdmin(true);
         else setShowLogin(true);
@@ -200,15 +204,15 @@ function App() {
         setCurrentPage(p);
       }
     };
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
   }, [isAuthenticated]);
 
   const checkAuthStatus = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     setIsAuthenticated(!!session);
-    // 重新整理時停在 #/admin：已登入直接回後台，未登入停在登入頁
-    if (pageFromHash() === 'admin') {
+    // 重新整理時停在 /admin：已登入直接回後台，未登入停在登入頁
+    if (pageFromPath() === 'admin') {
       if (session) { setShowAdmin(true); setShowLogin(false); }
       else setShowLogin(true);
     }

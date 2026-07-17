@@ -52,30 +52,30 @@ interface AdminPageProps {
 type AdminTab = 'dashboard' | 'wallpapers' | 'categories' | 'messages' | 'orders' | 'customers';
 const ADMIN_TABS: AdminTab[] = ['dashboard', 'wallpapers', 'categories', 'messages', 'orders', 'customers'];
 
-/** 從網址 hash 解析後台頁籤（#/admin/orders → orders），無效值回 dashboard */
-function tabFromHash(): AdminTab {
-  const parts = window.location.hash.replace(/^#\/?/, '').split('/');
+/** 從網址路徑解析後台頁籤（/admin/orders → orders），無效值回 dashboard */
+function tabFromPath(): AdminTab {
+  const parts = window.location.pathname.replace(/^\/+/, '').split('/');
   return parts[0] === 'admin' && (ADMIN_TABS as string[]).includes(parts[1])
     ? (parts[1] as AdminTab)
     : 'dashboard';
 }
 
 export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
-  // 頁籤與網址 hash 同步（#/admin/<tab>），重新整理停留在原頁籤
-  const [activeTab, setActiveTab] = useState<AdminTab>(tabFromHash);
+  // 頁籤與網址路徑同步（/admin/<tab>），重新整理停留在原頁籤
+  const [activeTab, setActiveTab] = useState<AdminTab>(tabFromPath);
 
   useEffect(() => {
-    const newHash = activeTab === 'dashboard' ? '#/admin' : `#/admin/${activeTab}`;
-    if (window.location.hash !== newHash) window.location.hash = newHash;
+    const newPath = activeTab === 'dashboard' ? '/admin' : `/admin/${activeTab}`;
+    if (window.location.pathname !== newPath) window.history.pushState(null, '', newPath);
   }, [activeTab]);
 
   useEffect(() => {
-    const onHashChange = () => {
-      const h = window.location.hash.replace(/^#\/?/, '');
-      if (h === 'admin' || h.startsWith('admin/')) setActiveTab(tabFromHash());
+    const onPopState = () => {
+      const p = window.location.pathname;
+      if (p === '/admin' || p.startsWith('/admin/')) setActiveTab(tabFromPath());
     };
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
   }, []);
   const [wallpapers, setWallpapers] = useState<Wallpaper[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
