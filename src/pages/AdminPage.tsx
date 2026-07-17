@@ -455,24 +455,9 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
 
   // ===================== 訂單 =====================
 
-  // 庫存模型：結帳時 DB trigger 已自動扣庫存（含 pending 狀態），
-  // 因此只有進出「已取消」狀態時才需要調整庫存
+  // 庫存記帳全部由 DB trigger 處理（結帳扣庫存、取消加回、恢復重扣、
+  // 項目增刪改自動補差額），前端不再手動調整，避免用過期資料覆寫庫存
   const updateOrderStatus = async (orderId: string, newStatus: string) => {
-    const order = orders.find(o => o.id === orderId);
-    if (!order) { alert('找不到訂單'); return; }
-    const oldStatus = order.status;
-    const wasCancelled = oldStatus === 'cancelled';
-    const isCancelled  = newStatus === 'cancelled';
-    if (wasCancelled !== isCancelled && order.order_items) {
-      for (const item of order.order_items) {
-        const wp = wallpapers.find(w => w.id === item.wallpaper_id);
-        if (!wp) { alert(`找不到產品 ID: ${item.wallpaper_id}`); return; }
-        const adj = wasCancelled && !isCancelled ? -item.quantity : item.quantity;
-        const newStock = wp.stock + adj;
-        if (newStock < 0) { alert(`${wp.title} 庫存不足`); return; }
-        await supabase.from('wallpapers').update({ stock: newStock }).eq('id', item.wallpaper_id);
-      }
-    }
     const { error } = await supabase.from('orders').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', orderId);
     if (error) { alert('更新失敗：' + error.message); return; }
     fetchOrders(); fetchWallpapers();
@@ -481,15 +466,7 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
 
   const deleteOrder = async (id: string) => {
     if (!confirm('確定要刪除這筆訂單嗎？')) return;
-    const order = orders.find(o => o.id === id);
-    if (!order) { alert('找不到訂單'); return; }
-    // 已取消的訂單庫存已加回過，其餘狀態（含 pending）刪除時都要加回
-    if (order.status !== 'cancelled' && order.order_items) {
-      for (const item of order.order_items) {
-        const wp = wallpapers.find(w => w.id === item.wallpaper_id);
-        if (wp) await supabase.from('wallpapers').update({ stock: wp.stock + item.quantity }).eq('id', item.wallpaper_id);
-      }
-    }
+    // 庫存回補由 DB trigger 處理（已取消的訂單不會重複加回）
     const { error } = await supabase.from('orders').delete().eq('id', id);
     if (error) alert('刪除失敗：' + error.message);
     else { fetchOrders(); fetchWallpapers(); }
@@ -500,42 +477,34 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
     if (!editingOrder) return;
     const original = orders.find(o => o.id === editingOrder.id);
     if (!original) { alert('找不到原始訂單'); return; }
-    const wasCancelled = original.status === 'cancelled';
-    const isCancelled  = editingOrder.status === 'cancelled';
-    if (wasCancelled !== isCancelled && editingOrder.order_items) {
-      for (const item of editingOrder.order_items) {
-        const wp = wallpapers.find(w => w.id === item.wallpaper_id);
-        if (!wp) { alert(`找不到產品 ID: ${item.wallpaper_id}`); return; }
-        const adj = wasCancelled && !isCancelled ? -item.quantity : item.quantity;
-        const newStock = wp.stock + adj;
-        if (newStock < 0) { alert(`${wp.title} 庫存不足`); return; }
-        await supabase.from('wallpapers').update({ stock: newStock }).eq('id', item.wallpaper_id);
-      }
-    }
 
+    // 項目增刪改與狀態變更的庫存調整全部由 DB trigger 處理
     // Save order item changes
     const originalItemIds = (original.order_items || []).map((i: any) => i.id);
     const remaining = editingOrderItems.filter(i => i.quantity > 0);
     if (remaining.length === 0) { alert('訂單至少需要一個項目'); return; }
 
-    // Update existing items
+    // Update existing items（trigger 會自動補庫存差額，不足時報錯）
     for (const item of remaining) {
       if (item.id && originalItemIds.includes(item.id)) {
         const subtotal = (item.unit_price || 0) * item.quantity;
-        await supabase.from('order_items').update({ quantity: item.quantity, unit_price: item.unit_price || 0, subtotal }).eq('id', item.id);
+        const { error: updErr } = await supabase.from('order_items').update({ quantity: item.quantity, unit_price: item.unit_price || 0, subtotal }).eq('id', item.id);
+        if (updErr) { alert('更新項目失敗：' + updErr.message); return; }
       }
     }
-    // Insert new items
+    // Insert new items（trigger 會自動扣庫存，不足時報錯）
     const newItems = remaining.filter(i => !i.id || !originalItemIds.includes(i.id));
     for (const item of newItems) {
       const subtotal = (item.unit_price || 0) * item.quantity;
-      await supabase.from('order_items').insert({ order_id: editingOrder.id, wallpaper_id: item.wallpaper_id, quantity: item.quantity, unit_price: item.unit_price || 0, subtotal });
+      const { error: insErr } = await supabase.from('order_items').insert({ order_id: editingOrder.id, wallpaper_id: item.wallpaper_id, quantity: item.quantity, unit_price: item.unit_price || 0, subtotal });
+      if (insErr) { alert('新增項目失敗：' + insErr.message); return; }
     }
-    // Delete removed items
+    // Delete removed items（trigger 會自動加回庫存）
     const remainingIds = remaining.filter(i => i.id).map(i => i.id);
     const removedIds = originalItemIds.filter((id: string) => !remainingIds.includes(id));
     if (removedIds.length > 0) {
-      await supabase.from('order_items').delete().in('id', removedIds);
+      const { error: delErr } = await supabase.from('order_items').delete().in('id', removedIds);
+      if (delErr) { alert('刪除項目失敗：' + delErr.message); return; }
     }
     // Recalculate total
     const newTotal = remaining.reduce((sum, i) => sum + (i.unit_price || 0) * i.quantity, 0);

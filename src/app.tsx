@@ -116,7 +116,7 @@ function App() {
   const [showCheckout, setShowCheckout]       = useState(false);
   const [checkoutForm, setCheckoutForm]       = useState({ name: '', email: '', phone: '', company: '', tax_id: '', shipping_address: '', notes: '' });
   const [submitting, setSubmitting]           = useState(false);
-  const [orderResult, setOrderResult]         = useState<{ success: boolean; orderNumber?: string } | null>(null);
+  const [orderResult, setOrderResult]         = useState<{ success: boolean; orderNumber?: string; message?: string } | null>(null);
 
   // 訂單查詢
   const [lookupVerify, setLookupVerify]       = useState('');
@@ -141,13 +141,12 @@ function App() {
     setLookupSelectedId(null);
 
     const contact = lookupVerify.trim();
-    const { data, error } = await supabase
-      .from('orders')
-      .select('*, order_items(*, wallpaper:wallpapers(title, spec, image_url))')
-      .or(`customer_email.eq.${contact},customer_phone.eq.${contact}`)
-      .order('created_at', { ascending: false });
+    // 走 SECURITY DEFINER RPC：參數化比對，anon 不再擁有 orders 的 SELECT 權限
+    const { data, error } = await supabase.rpc('lookup_orders', { contact });
 
-    if (error || !data || data.length === 0) {
+    if (error) {
+      setLookupError('查詢失敗，請稍後再試。');
+    } else if (!data || data.length === 0) {
       setLookupError('查詢無結果，請確認 Email 或電話是否正確。');
     } else {
       setLookupOrders(data);
@@ -258,52 +257,38 @@ function App() {
   };
 
   // ── 建立訂單 ──
+  // 走 create_order RPC：單一交易寫入訂單＋項目、伺服器端以 DB 價格計算金額、
+  // 庫存不足時整筆失敗並回傳原因（庫存扣減由 DB trigger 處理）
   const handleSubmitOrder = async () => {
     if (!checkoutForm.name || !checkoutForm.email || !checkoutForm.phone || cart.length === 0) return;
     setSubmitting(true);
 
-    const orderNumber = `QT-${Date.now()}`;
-    const totalAmount = cartTotal;
-
-    const { data: orderData, error: orderError } = await supabase
-      .from('orders')
-      .insert([{
-        order_number:     orderNumber,
-        customer_name:    checkoutForm.name,
-        customer_email:   checkoutForm.email,
-        customer_phone:   checkoutForm.phone,
-        customer_company: checkoutForm.company,
-        notes:            [
-          checkoutForm.notes,
-          checkoutForm.tax_id ? `統一編號：${checkoutForm.tax_id}` : '',
-          checkoutForm.shipping_address ? `送貨地址：${checkoutForm.shipping_address}` : '',
-        ].filter(Boolean).join('\n'),
-        status:           'pending',
-        total_amount:     totalAmount,
-      }])
-      .select()
-      .single();
-
-    if (orderError || !orderData) {
-      setOrderResult({ success: false });
-      setSubmitting(false);
-      return;
-    }
-
-    for (const item of cart) {
-      await supabase.from('order_items').insert([{
-        order_id:     orderData.id,
+    const { data, error } = await supabase.rpc('create_order', {
+      p_customer_name:    checkoutForm.name,
+      p_customer_email:   checkoutForm.email,
+      p_customer_phone:   checkoutForm.phone,
+      p_customer_company: checkoutForm.company,
+      p_notes: [
+        checkoutForm.notes,
+        checkoutForm.tax_id ? `統一編號：${checkoutForm.tax_id}` : '',
+        checkoutForm.shipping_address ? `送貨地址：${checkoutForm.shipping_address}` : '',
+      ].filter(Boolean).join('\n'),
+      p_items: cart.map(item => ({
         wallpaper_id: item.wallpaper.id,
         quantity:     item.quantity,
-        unit_price:   item.wallpaper.price_per_piece || 0,
-        subtotal:     (item.wallpaper.price_per_piece || 0) * item.quantity,
-      }]);
-      // Stock is decremented automatically by DB trigger
+      })),
+    });
+
+    if (error) {
+      setOrderResult({ success: false, message: error.message });
+      setSubmitting(false);
+      fetchWallpapers();
+      return;
     }
 
     setCart([]);
     setCheckoutForm({ name: '', email: '', phone: '', company: '', tax_id: '', shipping_address: '', notes: '' });
-    setOrderResult({ success: true, orderNumber });
+    setOrderResult({ success: true, orderNumber: data?.order_number });
     setSubmitting(false);
     fetchWallpapers();
   };
@@ -1458,6 +1443,9 @@ function App() {
                   <X size={32} className="text-red-600"/>
                 </div>
                 <h3 className="text-xl font-bold text-neutral-900 mb-2">送出失敗</h3>
+                {orderResult.message && (
+                  <p className="text-red-600 text-sm bg-red-50 border border-red-200 px-4 py-2 mb-3">{orderResult.message}</p>
+                )}
                 <p className="text-neutral-600 mb-6">請稍後再試，或直接與我們聯繫。</p>
               </>
             )}
