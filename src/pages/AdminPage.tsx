@@ -455,12 +455,14 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
 
   // ===================== 訂單 =====================
 
+  // 庫存模型：結帳時 DB trigger 已自動扣庫存（含 pending 狀態），
+  // 因此只有進出「已取消」狀態時才需要調整庫存
   const updateOrderStatus = async (orderId: string, newStatus: string) => {
     const order = orders.find(o => o.id === orderId);
     if (!order) { alert('找不到訂單'); return; }
     const oldStatus = order.status;
-    const wasCancelled = oldStatus === 'pending' || oldStatus === 'cancelled';
-    const isCancelled  = newStatus === 'pending' || newStatus === 'cancelled';
+    const wasCancelled = oldStatus === 'cancelled';
+    const isCancelled  = newStatus === 'cancelled';
     if (wasCancelled !== isCancelled && order.order_items) {
       for (const item of order.order_items) {
         const wp = wallpapers.find(w => w.id === item.wallpaper_id);
@@ -481,7 +483,8 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
     if (!confirm('確定要刪除這筆訂單嗎？')) return;
     const order = orders.find(o => o.id === id);
     if (!order) { alert('找不到訂單'); return; }
-    if (order.status !== 'pending' && order.status !== 'cancelled' && order.order_items) {
+    // 已取消的訂單庫存已加回過，其餘狀態（含 pending）刪除時都要加回
+    if (order.status !== 'cancelled' && order.order_items) {
       for (const item of order.order_items) {
         const wp = wallpapers.find(w => w.id === item.wallpaper_id);
         if (wp) await supabase.from('wallpapers').update({ stock: wp.stock + item.quantity }).eq('id', item.wallpaper_id);
@@ -497,8 +500,8 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
     if (!editingOrder) return;
     const original = orders.find(o => o.id === editingOrder.id);
     if (!original) { alert('找不到原始訂單'); return; }
-    const wasCancelled = original.status === 'pending' || original.status === 'cancelled';
-    const isCancelled  = editingOrder.status === 'pending' || editingOrder.status === 'cancelled';
+    const wasCancelled = original.status === 'cancelled';
+    const isCancelled  = editingOrder.status === 'cancelled';
     if (wasCancelled !== isCancelled && editingOrder.order_items) {
       for (const item of editingOrder.order_items) {
         const wp = wallpapers.find(w => w.id === item.wallpaper_id);
@@ -553,19 +556,28 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
 
 
   // ===================== 報價單 PDF 匯出 =====================
+  // 訂單資料來自前台訪客輸入，內插進 HTML 前必須轉義，防止 stored XSS
+  const escapeHtml = (value: string | null | undefined): string =>
+    String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
   const exportQuotePDF = (order: Order) => {
     const items = order.order_items || [];
     const rows = items.map(item => `
       <tr>
-        <td style="padding:8px 12px;border-bottom:1px solid #e5e5e5">${item.wallpaper?.title || '—'}</td>
-        <td style="padding:8px 12px;border-bottom:1px solid #e5e5e5;text-align:center">${item.wallpaper?.spec || '—'}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e5e5">${escapeHtml(item.wallpaper?.title) || '—'}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e5e5;text-align:center">${escapeHtml(item.wallpaper?.spec) || '—'}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #e5e5e5;text-align:center">${item.quantity}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #e5e5e5;text-align:right">NT$ ${(item.unit_price || 0).toLocaleString()}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #e5e5e5;text-align:right">NT$ ${(item.subtotal || 0).toLocaleString()}</td>
       </tr>`).join('');
 
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-    <title>報價單 ${order.order_number}</title>
+    <title>報價單 ${escapeHtml(order.order_number)}</title>
     <style>body{font-family:sans-serif;font-size:13px;color:#171717;margin:40px}
     h1{font-size:22px;font-weight:700;letter-spacing:2px;margin-bottom:4px}
     table{width:100%;border-collapse:collapse;margin-top:20px}
@@ -579,12 +591,12 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
     <p style="color:#737373;font-size:12px">報價單 / Quotation</p>
     <hr style="border:none;border-top:2px solid #171717;margin:16px 0">
     <div class="info">
-      <div><b>訂單編號</b>：${order.order_number}</div>
+      <div><b>訂單編號</b>：${escapeHtml(order.order_number)}</div>
       <div><b>日期</b>：${new Date(order.created_at).toLocaleDateString('zh-TW')}</div>
-      <div><b>客戶姓名</b>：${order.customer_name}</div>
-      <div><b>公司</b>：${order.customer_company || '—'}</div>
-      <div><b>Email</b>：${order.customer_email}</div>
-      <div><b>電話</b>：${order.customer_phone || '—'}</div>
+      <div><b>客戶姓名</b>：${escapeHtml(order.customer_name)}</div>
+      <div><b>公司</b>：${escapeHtml(order.customer_company) || '—'}</div>
+      <div><b>Email</b>：${escapeHtml(order.customer_email)}</div>
+      <div><b>電話</b>：${escapeHtml(order.customer_phone) || '—'}</div>
     </div>
     <table>
       <thead><tr>
@@ -599,7 +611,7 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
       <div class="row grand"><span>總計</span><span>NT$ ${Math.round((order.total_amount || 0) * 1.05).toLocaleString()}</span></div>
       <div style="text-align:right;font-size:11px;color:#a3a3a3;margin-top:4px">* 運費另計</div>
     </div>
-    ${order.notes ? `<p style="margin-top:20px;color:#737373;font-size:12px">備註：${order.notes}</p>` : ''}
+    ${order.notes ? `<p style="margin-top:20px;color:#737373;font-size:12px;white-space:pre-wrap">備註：${escapeHtml(order.notes)}</p>` : ''}
     <hr style="border:none;border-top:1px solid #e5e5e5;margin-top:40px">
     <p style="color:#a3a3a3;font-size:11px;text-align:center">© 2025 材酷建材 CAIKU</p>
     </body></html>`;
