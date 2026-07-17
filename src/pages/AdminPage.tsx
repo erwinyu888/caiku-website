@@ -188,7 +188,8 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
 
   const fetchWallpapers = async () => {
     setLoading(true);
-    const { data, error } = await supabase.from('wallpapers').select('*').order('created_at', { ascending: false });
+    // 批次匯入的產品 created_at 相同，必須加 id 當平手判定，否則每次更新後同分產品會重新洗牌
+    const { data, error } = await supabase.from('wallpapers').select('*').order('created_at', { ascending: false }).order('id', { ascending: true });
     if (!error) setWallpapers(data || []);
     setLoading(false);
   };

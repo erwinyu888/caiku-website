@@ -179,11 +179,13 @@ function App() {
 
   const fetchWallpapers = async () => {
     setLoading(true);
+    // created_at 相同的產品（批次匯入）需要 id 平手判定，順序才不會隨編輯變動
     const { data, error } = await supabase
       .from('wallpapers')
       .select('*')
       .eq('is_active', true)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: true });
     if (!error) setWallpapers(data || []);
     setLoading(false);
   };
