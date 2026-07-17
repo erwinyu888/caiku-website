@@ -44,11 +44,25 @@ export interface CartItem {
   quantity: number;
 }
 
-export async function uploadProductImage(file: File): Promise<string> {
-  const timestamp = Date.now();
+// 只允許真正的圖片類型，副檔名由 MIME 決定，避免上傳 HTML/SVG 到公開 bucket
+const ALLOWED_IMAGE_TYPES: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png':  'png',
+  'image/webp': 'webp',
+  'image/gif':  'gif',
+};
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB，與 bucket 的 file_size_limit 一致
 
-  // 從檔案名稱提取副檔名
-  const ext = file.name.split('.').pop() || 'jpg';
+export async function uploadProductImage(file: File): Promise<string> {
+  const ext = ALLOWED_IMAGE_TYPES[file.type];
+  if (!ext) {
+    throw new Error('僅支援 JPG、PNG、WebP、GIF 圖片格式');
+  }
+  if (file.size > MAX_IMAGE_SIZE) {
+    throw new Error('圖片大小不可超過 5MB');
+  }
+
+  const timestamp = Date.now();
 
   // 生成安全的檔案名稱（只用時間戳 + 隨機數）
   const randomId = Math.random().toString(36).substring(2, 8);
@@ -56,7 +70,7 @@ export async function uploadProductImage(file: File): Promise<string> {
 
   const { data, error } = await supabase.storage
     .from('product_image')
-    .upload(fileName, file);
+    .upload(fileName, file, { contentType: file.type });
 
   if (error) {
     throw new Error(`Supabase 上傳失敗: ${error.message}`);
