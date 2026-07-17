@@ -81,14 +81,30 @@ function groupProducts(products: Wallpaper[]): ProductGroup[] {
   });
 }
 
+type PageKey = 'home' | 'products' | 'service' | 'about' | 'contact' | 'order-lookup';
+const PAGE_KEYS: PageKey[] = ['home', 'products', 'service', 'about', 'contact', 'order-lookup'];
+
+/** 從網址 hash 解析目前頁面（#/products → products），無效值回 home */
+function pageFromHash(): PageKey | 'admin' {
+  const h = window.location.hash.replace(/^#\/?/, '');
+  if (h === 'admin') return 'admin';
+  return (PAGE_KEYS as string[]).includes(h) ? (h as PageKey) : 'home';
+}
+
 function App() {
   const [showAdmin, setShowAdmin]             = useState(false);
-  const [showLogin, setShowLogin]             = useState(false);
+  // 重新整理時停在 #/admin：先同步顯示登入頁佔住 hash（避免被改寫回 #/home），
+  // checkAuthStatus 確認已登入後會自動切到後台
+  const [showLogin, setShowLogin]             = useState(() => pageFromHash() === 'admin');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [searchQuery, setSearchQuery]         = useState('');
   const [showSearch, setShowSearch]           = useState(false);
-  const [currentPage, setCurrentPage]         = useState<'home' | 'products' | 'service' | 'about' | 'contact' | 'order-lookup'>('home');
+  // 頁面狀態與網址 hash 同步：重新整理後停留在原頁面
+  const [currentPage, setCurrentPage]         = useState<PageKey>(() => {
+    const p = pageFromHash();
+    return p === 'admin' ? 'home' : p;
+  });
   const [showDrawer, setShowDrawer]           = useState(false);
   const [wallpapers, setWallpapers]           = useState<Wallpaper[]>([]);
   const [categories, setCategories]           = useState<Category[]>([]);
@@ -160,9 +176,38 @@ function App() {
     checkAuthStatus();
   }, []);
 
+  // 頁面狀態 → 網址 hash（切頁時寫入，產生瀏覽紀錄，上一頁/下一頁可用）
+  useEffect(() => {
+    const target = showAdmin || showLogin ? 'admin' : currentPage;
+    const newHash = '#/' + target;
+    if (window.location.hash !== newHash) window.location.hash = newHash;
+  }, [currentPage, showAdmin, showLogin]);
+
+  // 網址 hash → 頁面狀態（上一頁/下一頁、手動改網址時同步回來）
+  useEffect(() => {
+    const onHashChange = () => {
+      const p = pageFromHash();
+      if (p === 'admin') {
+        if (isAuthenticated) setShowAdmin(true);
+        else setShowLogin(true);
+      } else {
+        setShowAdmin(false);
+        setShowLogin(false);
+        setCurrentPage(p);
+      }
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, [isAuthenticated]);
+
   const checkAuthStatus = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     setIsAuthenticated(!!session);
+    // 重新整理時停在 #/admin：已登入直接回後台，未登入停在登入頁
+    if (pageFromHash() === 'admin') {
+      if (session) { setShowAdmin(true); setShowLogin(false); }
+      else setShowLogin(true);
+    }
   };
 
   const handleLogout = async () => {
