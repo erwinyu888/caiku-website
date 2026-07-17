@@ -1219,7 +1219,7 @@ export default function AdminPage({ onBack, onLogout }: AdminPageProps) {
                     <Upload size={14} />
                     {uploading ? '上傳中...' : '上傳圖片'}
                   </button>
-                  <span className="text-xs text-neutral-500">選擇 JPG、PNG 等圖片檔</span>
+                  <span className="text-xs text-neutral-500">選擇 JPG、PNG 等圖片檔・自動壓縮後上傳</span>
                 </div>
               </div>
 
