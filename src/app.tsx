@@ -1,3 +1,4 @@
+import CompanyInfo from './components/CompanyInfo';
 import { useState, useEffect } from 'react';
 import { Search, Shield, LogOut, X, ShoppingCart, Plus, Minus, Trash2, ChevronLeft, ChevronRight, CheckCircle, SlidersHorizontal, Layers, MapPin, MessageCircle, Eye, Wrench, Palette, DollarSign } from 'lucide-react';
 import AdminPage from './pages/AdminPage';
@@ -1054,7 +1055,8 @@ function App() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <div>
               <h3 className="text-white font-bold mb-4 uppercase text-sm tracking-wider">關於我們</h3>
-              <p className="text-sm leading-relaxed">專注於創新建築飾面材料，打破傳統石材的沉重與施工限制。</p>
+              <p className="text-sm leading-relaxed mb-4">專注於創新建築飾面材料，打破傳統石材的沉重與施工限制。</p>
+              <CompanyInfo />
             </div>
             <div>
               <h4 className="text-white font-bold mb-4 uppercase text-sm tracking-wider">產品</h4>
